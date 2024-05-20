@@ -1,0 +1,83 @@
+---
+- name: Install required package
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - "xfsprogs"
+
+- name: Creating XFS on master devices
+  community.general.filesystem:
+    fstype: xfs
+    dev: "/dev/{{ master_devname }}"
+  when: (master_mkfs and master_force_mount)
+
+- name: Creating directories on master devices
+  ansible.builtin.file:
+    path: "{{ master_datadir }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ cluster_admin_user }}"
+    group: "{{ cluster_admin_user }}"
+
+- name: Mounting data volume on masters RH8
+  ansible.posix.mount:
+    path: "{{ master_datadir }}"
+    src: "/dev/{{ master_devname }}"
+    fstype: xfs
+    opts: "rw,nodev,noatime,inode64"
+    state: mounted
+  when: master_force_mount and not
+        (ansible_distribution == "CentOS" and ansible_distribution_major_version == "7")
+
+- name: Mounting data volume on masters not RH8
+  ansible.posix.mount:
+    path: "{{ master_datadir }}"
+    src: "/dev/{{ master_devname }}"
+    fstype: xfs
+    opts: "rw,nodev,noatime,nobarrier,inode64"
+    state: mounted
+  when: master_force_mount and
+        (ansible_distribution == "CentOS" and ansible_distribution_major_version == "7")
+
+- name: Creating master directory in datadir
+  ansible.builtin.file:
+    path: "{{ master_datadir }}/{{ master_directory }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ cluster_admin_user }}"
+    group: "{{ cluster_admin_user }}"
+
+- name: Create directory for setprm.sh
+  ansible.builtin.file:
+    path: /opt/setprm
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Create setprm.sh
+  ansible.builtin.template:
+    src: setprm.sh.j2
+    dest: /opt/setprm/setprm.sh
+    backup: true
+    mode: "0744"
+    owner: root
+    group: root
+
+- name: Create setprm.service
+  ansible.builtin.template:
+    src: setprm.service.j2
+    dest: /etc/systemd/system/setprm.service
+    backup: true
+    mode: "0644"
+    owner: root
+    group: root
+
+- name: Start setprm.service
+  ansible.builtin.systemd:
+    name: setprm
+    state: started
+    daemon_reload: true
+    enabled: true
+...

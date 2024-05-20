@@ -1,0 +1,10 @@
+{% if master_ntp %}
+server {{ hostvars[groups['master'][0]]['ansible_host'] }} iburst prefer
+{% endif %}
+{% for ntpserver in ntp_server %}
+server {{ ntpserver }} iburst
+{% endfor %}
+driftfile /var/lib/chrony/drift
+makestep 1.0 3
+rtcsync
+logdir /var/log/chrony

@@ -1,0 +1,80 @@
+---
+- name: Cluster pre-configuration
+  hosts: greenplum_cluster
+  become: true
+  tags:
+    - pre_install
+    - add_host
+  vars_prompt:
+    - name: "cluster_admin_password"
+      prompt: "Enter a password for gp cluster admin"
+      private: true
+      confirm: true
+  roles:
+    - role: pre_install
+
+- name: Configure disks of masters
+  hosts: masters
+  become: true
+  tags:
+    - pre_install
+  roles:
+    - role: preconfigure_disks_mstr
+
+- name: Configure disks of each segment
+  hosts: segments
+  become: true
+  tags:
+    - pre_install
+    - add_host
+  roles:
+    - role: preconfigure_disks_sgmt
+
+- name: Install required packages
+  hosts: greenplum_cluster
+  become: true
+  roles:
+    - role: packages_install
+  tags:
+    - packages_install
+    - add_host
+
+- name: Deploy cluster
+  hosts: greenplum_cluster
+  become: true
+  tags:
+    - gp_install
+  roles:
+    - role: gp_install
+
+- name: Finalize
+  hosts: greenplum_cluster
+  become: true
+  tags:
+    - finalize
+    - add_host
+  tasks:
+    - name: Remove user from sudo-group
+      block:
+        - name: Get a list of groups excepting sudo-group
+          ansible.builtin.shell:
+            cmd: >-
+              set -o pipefail &&
+              groups {{ cluster_admin_user }}
+              | cut -d : -f 2
+              | sed "s| sudo | |"
+              | sed "s| wheel | |"
+              | sed "s|\s*$||"
+              | sed "s|^\s*||"
+              | sed "s|  | |"
+              | sed "s| |,|"
+          register: gp_install_non_sudo_groups
+          changed_when: false
+          args:
+            executable: /bin/bash
+        - name: Assign groups from the list to the user
+          ansible.builtin.user:
+            name: "{{ cluster_admin_user }}"
+            groups: "{{ gp_install_non_sudo_groups.stdout }}"
+...
+

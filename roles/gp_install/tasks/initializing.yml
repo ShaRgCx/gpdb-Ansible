@@ -1,0 +1,60 @@
+---
+- name: Create dir
+  ansible.builtin.file:
+    path: /home/{{ cluster_admin_user }}/gpconfigs/gpinitsystem_config
+    state: directory
+    owner: "{{ cluster_admin_user }}"
+    group: "{{ cluster_admin_user }}"
+    mode: "0755"
+  delegate_to: "{{ groups['master'][0] }}"
+  run_once: true
+
+- name: Generate all hosts host file
+  ansible.builtin.lineinfile:
+    path: /home/{{ cluster_admin_user }}/hostfile_gpinitsystem
+    line: '{{ hostvars[item]["inventory_hostname"] }} '
+    state: present
+    create: true
+    group: "{{ cluster_admin_user }}"
+    owner: "{{ cluster_admin_user }}"
+    mode: "0644"
+  loop:
+    "{{ groups['segments'] }}"
+
+- name: Creating the Greenplum Database Configuration File
+  ansible.builtin.template:
+    src: gpinitsystem_config.j2
+    dest: /home/{{ cluster_admin_user }}/gpconfigs/gpinitsystem_config/gpinitsystem_config
+    owner: "{{ cluster_admin_user }}"
+    group: "{{ cluster_admin_user }}"
+    mode: "0755"
+  delegate_to: "{{ groups['master'][0] }}"
+  run_once: true
+  tags:
+    - add_host
+
+- name: Run command localedef
+  ansible.builtin.command:
+    cmd: "localedef -i en_US -f UTF-8 en_US.UTF-8"
+  changed_when: true
+  tags:
+    - add_host
+
+- name: Adding to profile of {{ cluster_admin_user }}
+  ansible.builtin.lineinfile:
+    path: /home/{{ cluster_admin_user }}/.bashrc
+    state: present
+    line: 'export LC_ALL="en_US.UTF-8"'
+  delegate_to: "{{ groups['master'][0] }}"
+  run_once: true
+  tags:
+    - add_host
+
+- name: Run tasks/initializing_master.yml
+  ansible.builtin.include_tasks:
+    file: initializing_master.yml
+  # vars:
+  #   ansible_python_interpreter: '/usr/bin/python3'
+  tags:
+    - add_host
+...

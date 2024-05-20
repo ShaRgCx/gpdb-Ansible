@@ -1,0 +1,11 @@
+[Unit]
+Description=Set the required system parameters (MTU, read-ahead, mq-deadline)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/bash /opt/setprm/setprm.sh
+StandardOutput=syslog
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4 @@
+#!/bin/bash
+ip link set mtu 8220 {{ hostvars[inventory_hostname]['ansible_default_ipv4']['interface'] }}
+/sbin/blockdev --setra 16384 /dev/{{ master_devname }}
+echo deadline > /sys/block/{{ master_devname }}/queue/scheduler

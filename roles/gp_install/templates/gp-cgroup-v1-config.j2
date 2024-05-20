@@ -1,0 +1,17 @@
+[Unit]
+Description=Greenplum Cgroup v1 Configuration
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/sys/fs/cgroup
+# set up hierarchies only if cgroup v1 mounted
+ExecCondition=bash -c '[ xcgroupfs = x$(stat -fc "%%T" /sys/fs/cgroup/memory) ] || exit 1'
+ExecStart=bash -ec '\
+    for controller in cpu cpuacct cpuset memory;do \
+        [ -e $controller/gpdb ] || mkdir $controller/gpdb; \
+        chown -R {{ cluster_admin_user }}:{{ cluster_admin_user }} $controller/gpdb; \
+    done'
+
+[Install]
+WantedBy=basic.target

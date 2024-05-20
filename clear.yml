@@ -1,0 +1,89 @@
+---
+- name: Clean folders
+  hosts:
+    - greenplum_cluster
+  become: true
+  tasks:
+    - name: Profilactic reboot
+      ansible.builtin.reboot:
+    - name: Remove master-folders
+      ansible.builtin.file:
+        path: "{{ master_datadir }}/{{ master_directory }}"
+        state: absent
+    - name: Remove primary-folders
+      ansible.builtin.file:
+        path: "{{ item[0] }}/{{ primary_directory }}"
+        state: absent
+      loop: "{{ segment_datadisks }}"
+    - name: Remove mirror-folders
+      ansible.builtin.file:
+        path: "{{ item[0] }}/{{ mirror_directory }}"
+        state: absent
+      loop: "{{ segment_datadisks }}"
+
+- name: Create master folders
+  hosts:
+    - masters
+  become: true
+  tasks:
+    - name: Creating master directory in datadir
+      ansible.builtin.file:
+        path: "{{ master_datadir }}/{{ master_directory }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ cluster_admin_user }}"
+        group: "{{ cluster_admin_user }}"
+
+- name: Create segments folders
+  hosts:
+    - segments
+  become: true
+  tasks:
+    - name: Creating segments primary directory in datadir
+      ansible.builtin.file:
+        path: "{{ item[0] }}/{{ primary_directory }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ cluster_admin_user }}"
+        group: "{{ cluster_admin_user }}"
+      loop: "{{ segment_datadisks }}"
+    - name: Creating segments mirrors directory in datadir
+      ansible.builtin.file:
+        path: "{{ item[0] }}/{{ mirror_directory }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ cluster_admin_user }}"
+        group: "{{ cluster_admin_user }}"
+      when: mirror
+      loop: "{{ segment_datadisks }}"
+
+- name: Rename logs
+  hosts:
+    - masters
+  become: true
+  become_user: "{{ cluster_admin_user }}"
+  tasks:
+    - name: Get Date
+      ansible.builtin.command:
+        cmd: "date '+%Y%m%d'"
+      changed_when: false
+      register: logdate
+    - name: Check logfile
+      ansible.builtin.stat:
+        path: "/home/{{ cluster_admin_user }}/gpAdminLogs/gpinitsystem_{{ logdate.stdout }}.log"
+      register: pre_install_deb_hosts
+    - name: Move logfile
+      when: pre_install_deb_hosts.stat.exists
+      block:
+        - name: Get DateTime
+          ansible.builtin.command:
+            cmd: "date '+%Y%m%d%H%M%S'"
+          changed_when: false
+          register: logdatetime
+        - name: Rename logfile
+          ansible.builtin.command:
+            cmd: >-
+              mv /home/{{ cluster_admin_user }}/gpAdminLogs/gpinitsystem_{{ logdate.stdout }}.log
+              /home/{{ cluster_admin_user }}/gpAdminLogs/gpinitsystem_{{ logdatetime.stdout }}.log
+          changed_when: true
+...

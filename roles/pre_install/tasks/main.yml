@@ -1,0 +1,90 @@
+---
+- name: Create group
+  ansible.builtin.group:
+    name: "{{ cluster_admin_user }}"
+    state: present
+
+- name: Changing hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+#### notify: 'Reboot'
+
+- name: Add hosts to /etc/hosts
+  ansible.builtin.lineinfile:
+    dest: /etc/hosts
+    line: >-
+      {{ hostvars[item]["ansible_default_ipv4"]["address"] }} {{ item }}
+      #Added by gp db installer
+    state: present
+  loop: "{{ groups['greenplum_cluster'] }} "
+
+- name: Check YA Cloud
+  ansible.builtin.stat:
+    path: /etc/cloud/templates/hosts.debian.tmpl
+  register: pre_install_deb_hosts
+
+- name: Configure template of /etc/hosts on Ubuntu in YaC
+  when:
+    - pre_install_deb_hosts.stat.exists
+  block:
+    - name: Add hosts to template of /etc/hosts on Ubuntu in YaC
+      ansible.builtin.lineinfile:
+        dest: /etc/cloud/templates/hosts.debian.tmpl
+        line: >-
+          {{ hostvars[item]["ansible_default_ipv4"]["address"] }} {{ item }}
+          #Added by gp db installer
+      loop: "{{ groups['greenplum_cluster'] }} "
+
+    - name: Remove line with IP '127.0.1.1' from template of /etc/hosts on Ubuntu in YaC
+      ansible.builtin.lineinfile:
+        dest: /etc/cloud/templates/hosts.debian.tmpl
+        regexp: '.*127\.0\.1\.1.*'
+        state: absent
+
+- name: Run tasks/Configure_NTP.yml
+  ansible.builtin.include_tasks:
+    file: Configure_NTP.yml
+
+- name: Preinstall
+  ansible.builtin.include_tasks:
+    file: preinstall.yml
+
+- name: Disable SELinux
+  when: ansible_selinux is defined and ansible_selinux and ansible_selinux.status == 'enabled'
+  ansible.posix.selinux:
+    state: disabled
+  notify: 'Reboot'
+
+- name: SSH config leaks of user {{ cluster_admin_user }}
+  ansible.builtin.blockinfile:
+    path: /home/{{ cluster_admin_user }}/.ssh/config
+    block: |
+      StrictHostKeyChecking no
+      GSSAPIAuthentication no
+      GSSAPIKeyExchange no
+    create: true
+    mode: "0600"
+    owner: "{{ cluster_admin_user }}"
+    group: "{{ cluster_admin_user }}"
+    backup: true
+  become: true
+
+- name: Fetching keys
+  ansible.builtin.command:
+    cmd: cat /home/{{ cluster_admin_user }}/.ssh/id_rsa.pub
+  changed_when: false
+  register: pre_install_rsa_key
+  delegate_to: "{{ groups['master'][0] }}"
+  run_once: true
+  delegate_facts: true
+
+- name: Set authorized key took from files
+  ansible.posix.authorized_key:
+    user: "{{ cluster_admin_user }}"
+    state: present
+    key: "{{ pre_install_rsa_key.stdout }}"
+
+- name: Run tasks/Configure_System.yml
+  ansible.builtin.include_tasks:
+    file: Configure_System.yml
+...

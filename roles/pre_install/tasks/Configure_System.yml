@@ -1,0 +1,114 @@
+---
+- name: Configure sysctl kernel.shmall
+  ansible.builtin.shell:
+    cmd: echo $(expr $(getconf _PHYS_PAGES) / 2)
+  changed_when: false
+  register: pre_install_kernelshmall
+
+- name: Configure sysctl kernel.shmax
+  ansible.builtin.shell:
+    cmd: echo $(expr $(getconf _PHYS_PAGES) / 2 \* $(getconf PAGE_SIZE))
+  changed_when: false
+  register: pre_install_kernelshmax
+
+- name: Prepare sysctl vm.min_free_kbytes parameter
+  ansible.builtin.shell:
+    cmd: |
+      awk 'BEGIN {OFMT = "%.0f";} /MemTotal/{print "vm.min_free_kbytes =", $2 * .03;}' \
+      /proc/meminfo
+  register: pre_install_vm_min_free_kbytes
+  changed_when: false
+
+- name: Change config sysctl
+  ansible.builtin.template:
+    src: sysctl.j2
+    dest: /etc/sysctl.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify: 'Reload sysctl.conf'
+
+- name: Configure pam_limits nofile  # noqa args
+  community.general.pam_limits:
+    dest: /etc/security/limits.d/90-greenplum.conf
+    domain: '*'
+    limit_type: "{{ item }}"
+    limit_item: nofile
+    value: '524288'
+  loop:
+    - soft
+    - hard
+  notify: 'Reboot'
+
+- name: Configure pam_limits nproc  # noqa args
+  community.general.pam_limits:
+    dest: /etc/security/limits.d/90-greenplum.conf
+    domain: '*'
+    limit_type: "{{ item }}"
+    limit_item: nproc
+    value: '131072'
+  loop:
+    - soft
+    - hard
+  notify: 'Reboot'
+
+- name: Configure pam_limits core
+  community.general.pam_limits:
+    dest: /etc/security/limits.d/90-greenplum.conf
+    domain: '*'
+    limit_type: soft
+    limit_item: core
+    value: unlimited
+  notify: 'Reboot'
+
+- name: Change Logind
+  ansible.builtin.lineinfile:
+    dest: /etc/systemd/logind.conf
+    state: present
+    regexp: '^RemoveIPC='
+    line: 'RemoveIPC=no'
+  notify: 'Restart logind service'
+
+- name: Setup SSH Connection Threshold
+  ansible.builtin.lineinfile:
+    dest: "/etc/ssh/sshd_config"
+    state: present
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+  loop:
+    - {regexp: '^MaxStartups', line: 'MaxStartups 10:30:200'}
+    - {regexp: '^MaxSessions', line: 'MaxSessions 200'}
+  notify: 'Restart ssh service'
+
+- name: Check hugepages
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: 'transparent_hugepage='
+    state: absent
+  check_mode: true
+  changed_when: false
+  register: pre_install_transparent_hugepage
+
+- name: Change transparent_hugepage in /etc/default/grub
+  ansible.builtin.replace:
+    path: /etc/default/grub
+    regexp: 'transparent_hugepage=\w+'
+    replace: 'transparent_hugepage=never'
+  when: pre_install_transparent_hugepage.found
+  notify:
+    # - Add module
+    - Update grub
+    - Reboot
+
+- name: Add transparent_hugepage in /etc/default/grub if not exist
+  ansible.builtin.replace:
+    path: /etc/default/grub
+    regexp: '^(GRUB_CMDLINE_LINUX=".*)"$'
+    replace: '\1 transparent_hugepage=never"'
+  when: not pre_install_transparent_hugepage.found
+  notify:
+    # - Add module
+    - Update grub
+    - Reboot
+...
